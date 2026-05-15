@@ -86,11 +86,26 @@ const USER_AGENT = "Crosspost v1.0.4"; // x-release-please-version
  * @returns {Promise<DevtoArticle>} A promise that resolves with the article data.
  */
 async function postArticle(apiKey, content, postOptions) {
-	const imageWithUrl = postOptions?.images?.find(
-		image => "url" in image && typeof image.url === "string",
+	const imagesWithUrl = /** @type {Array<{url: string, alt?: string}>} */ (
+		/** @type {unknown} */ (
+			postOptions?.images?.filter(
+				image => "url" in image && typeof image.url === "string",
+			) ?? []
+		)
 	);
-	const mainImage =
-		imageWithUrl && "url" in imageWithUrl ? imageWithUrl.url : undefined;
+
+	// Replace <img> placeholder tags (no src or data: URI src) with URL-based img tags
+	let processedContent = content;
+
+	for (const image of imagesWithUrl) {
+		const replaced = processedContent.replace(
+			/<img\b(?![^>]*\bsrc="https?:\/\/[^"]*")[^>]*>/i,
+			`<img src="${image.url}"${image.alt ? ` alt="${image.alt}"` : ""}>`,
+		);
+		processedContent = replaced;
+	}
+
+	const mainImage = imagesWithUrl[0]?.url;
 
 	const response = await fetch(`${API_URL}/articles`, {
 		method: "POST",
@@ -101,8 +116,8 @@ async function postArticle(apiKey, content, postOptions) {
 		},
 		body: JSON.stringify({
 			article: {
-				title: content.split(/\r?\n/g)[0],
-				body_markdown: content,
+				title: processedContent.split(/\r?\n/g)[0],
+				body_markdown: processedContent,
 				published: true,
 				...(mainImage ? { main_image: mainImage } : {}),
 			},

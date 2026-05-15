@@ -215,6 +215,178 @@ describe("DevtoStrategy", () => {
 			assert.deepStrictEqual(response, CREATE_ARTICLE_RESPONSE);
 		});
 
+		it("should replace <img> placeholder with url when image has a url property", async () => {
+			const imageUrl =
+				"https://opengraph.githubassets.com/ff751d15bc53efcbea631b18899a382756e2365a31287fcc3b54d7df16df66a3/nbauma109/jd-gui-duo/releases/tag/2.0.112";
+			const content = "Hello World\n\n<img>\n\nThis is a test post.";
+			const processedContent = `Hello World\n\n<img src="${imageUrl}" alt="Release image">\n\nThis is a test post.`;
+
+			server.post(
+				{
+					url: "/api/articles",
+					headers: {
+						"content-type": "application/json",
+						"api-key": API_KEY,
+					},
+					body: {
+						article: {
+							title: "Hello World",
+							body_markdown: processedContent,
+							published: true,
+							main_image: imageUrl,
+						},
+					},
+				},
+				{
+					status: 201,
+					headers: {
+						"content-type": "application/json",
+					},
+					body: CREATE_ARTICLE_RESPONSE,
+				},
+			);
+
+			const response = await strategy.post(content, {
+				images: [
+					{
+						alt: "Release image",
+						data: new Uint8Array([137, 80, 78, 71]),
+						url: imageUrl,
+					},
+				],
+			});
+
+			assert.deepStrictEqual(response, CREATE_ARTICLE_RESPONSE);
+		});
+
+		it("should replace <img src=\"data:...\"> with url when image has a url property", async () => {
+			const imageUrl = "https://example.com/image.png";
+			const content =
+				'Hello World\n\n<img src="data:image/png;base64,abc123">\n\nThis is a test post.';
+			const processedContent = `Hello World\n\n<img src="${imageUrl}">\n\nThis is a test post.`;
+
+			server.post(
+				{
+					url: "/api/articles",
+					headers: {
+						"content-type": "application/json",
+						"api-key": API_KEY,
+					},
+					body: {
+						article: {
+							title: "Hello World",
+							body_markdown: processedContent,
+							published: true,
+							main_image: imageUrl,
+						},
+					},
+				},
+				{
+					status: 201,
+					headers: {
+						"content-type": "application/json",
+					},
+					body: CREATE_ARTICLE_RESPONSE,
+				},
+			);
+
+			const response = await strategy.post(content, {
+				images: [{ data: new Uint8Array([137, 80, 78, 71]), url: imageUrl }],
+			});
+
+			assert.deepStrictEqual(response, CREATE_ARTICLE_RESPONSE);
+		});
+
+		it("should not replace <img> tags that already have a valid URL src", async () => {
+			const existingUrl = "https://example.com/existing.png";
+			const content = `Hello World\n\n<img src="${existingUrl}">\n\nThis is a test post.`;
+
+			server.post(
+				{
+					url: "/api/articles",
+					headers: {
+						"content-type": "application/json",
+						"api-key": API_KEY,
+					},
+					body: {
+						article: {
+							title: "Hello World",
+							body_markdown: content,
+							published: true,
+							main_image: "https://example.com/other.png",
+						},
+					},
+				},
+				{
+					status: 201,
+					headers: {
+						"content-type": "application/json",
+					},
+					body: CREATE_ARTICLE_RESPONSE,
+				},
+			);
+
+			const response = await strategy.post(content, {
+				images: [
+					{
+						data: new Uint8Array([137, 80, 78, 71]),
+						url: "https://example.com/other.png",
+					},
+				],
+			});
+
+			assert.deepStrictEqual(response, CREATE_ARTICLE_RESPONSE);
+		});
+
+		it("should replace multiple <img> placeholders with multiple image URLs in order", async () => {
+			const url1 = "https://example.com/image1.png";
+			const url2 = "https://example.com/image2.png";
+			const content = "Hello World\n\n<img>\n\n<img>\n\nThis is a test post.";
+			const processedContent = `Hello World\n\n<img src="${url1}" alt="first">\n\n<img src="${url2}" alt="second">\n\nThis is a test post.`;
+
+			server.post(
+				{
+					url: "/api/articles",
+					headers: {
+						"content-type": "application/json",
+						"api-key": API_KEY,
+					},
+					body: {
+						article: {
+							title: "Hello World",
+							body_markdown: processedContent,
+							published: true,
+							main_image: url1,
+						},
+					},
+				},
+				{
+					status: 201,
+					headers: {
+						"content-type": "application/json",
+					},
+					body: CREATE_ARTICLE_RESPONSE,
+				},
+			);
+
+			const response = await strategy.post(content, {
+				images: [
+					{
+						alt: "first",
+						data: new Uint8Array([137, 80, 78, 71]),
+						url: url1,
+					},
+					{
+						alt: "second",
+						data: new Uint8Array([137, 80, 78, 71]),
+						url: url2,
+					},
+				],
+			});
+
+			assert.deepStrictEqual(response, CREATE_ARTICLE_RESPONSE);
+		});
+
 		it("should abort when signal is triggered", async () => {
 			const content = "Hello World\n\nThis is a test post.";
 			const controller = new AbortController();
