@@ -172,7 +172,7 @@ describe("DevtoStrategy", () => {
 			assert.deepStrictEqual(response, CREATE_ARTICLE_RESPONSE);
 		});
 
-		it("should post article without changes when image URL is provided", async () => {
+		it("should post article without changes when image includes an extra url property", async () => {
 			const content = "Hello World\n\nThis is a test post.";
 			const imageUrl =
 				"https://opengraph.githubassets.com/abc/owner/repo/releases/tag/v1.0.0";
@@ -201,17 +201,15 @@ describe("DevtoStrategy", () => {
 				},
 			);
 
-			const response = await strategy.post(
-				content,
-				/** @type {any} */ ({
-					images: [
-						{
-							alt: "Release image",
-							url: imageUrl,
-						},
-					],
-				}),
-			);
+			const response = await strategy.post(content, {
+				images: [
+					{
+						alt: "Release image",
+						data: new Uint8Array([137, 80, 78, 71]),
+						url: imageUrl,
+					},
+				],
+			});
 
 			assert.deepStrictEqual(response, CREATE_ARTICLE_RESPONSE);
 		});
