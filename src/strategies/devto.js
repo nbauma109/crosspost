@@ -100,25 +100,32 @@ function escapeAttr(value) {
  * @returns {Promise<DevtoArticle>} A promise that resolves with the article data.
  */
 async function postArticle(apiKey, content, postOptions) {
-	const imagesWithUrl = /** @type {Array<{url: string, alt?: string}>} */ (
-		/** @type {unknown} */ (
-			postOptions?.images?.filter(
-				image => "url" in image && typeof image.url === "string",
-			) ?? []
-		)
-	);
-
-	// Replace <img> placeholder tags (no src or data: URI src) with URL-based img tags
+	// Replace <img> placeholder tags (no src or data: URI src) with URL-based img tags,
+	// using images that carry a url property. Each image replaces the next placeholder
+	// in document order (no global flag so each loop iteration advances one placeholder).
 	let processedContent = content;
+	let mainImage;
 
-	for (const image of imagesWithUrl) {
+	for (const image of postOptions?.images ?? []) {
+		if (!("url" in image) || typeof image.url !== "string") {
+			continue;
+		}
+
+		const url = image.url;
+		const alt =
+			"alt" in image && typeof image.alt === "string"
+				? image.alt
+				: undefined;
+
+		if (!mainImage) {
+			mainImage = url;
+		}
+
 		processedContent = processedContent.replace(
 			/<img\b(?![^>]*\bsrc="https?:\/\/[^"]*")[^>]*>/i,
-			`<img src="${escapeAttr(image.url)}"${image.alt ? ` alt="${escapeAttr(image.alt)}"` : ""}>`,
+			`<img src="${escapeAttr(url)}"${alt ? ` alt="${escapeAttr(alt)}"` : ""}>`,
 		);
 	}
-
-	const mainImage = imagesWithUrl[0]?.url;
 
 	const response = await fetch(`${API_URL}/articles`, {
 		method: "POST",
