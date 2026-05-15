@@ -108,8 +108,6 @@ async function waitForMediaProcessing(
 	const url = `https://${host}/api/v1/media/${mediaId}`;
 
 	for (let attempt = 0; attempt < maxPollAttempts; attempt++) {
-		await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
-
 		const response = await fetch(url, {
 			headers: {
 				Authorization: `Bearer ${accessToken}`,
@@ -133,6 +131,8 @@ async function waitForMediaProcessing(
 		if (result.url !== null) {
 			return;
 		}
+
+		await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
 	}
 
 	throw new Error(`Media processing timed out for ID ${mediaId}`);
