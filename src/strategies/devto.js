@@ -79,6 +79,20 @@ const USER_AGENT = "Crosspost v1.0.4"; // x-release-please-version
 //-----------------------------------------------------------------------------
 
 /**
+ * Escapes special HTML attribute characters to prevent injection.
+ * @param {string} value The raw attribute value.
+ * @returns {string} The escaped attribute value.
+ */
+function escapeAttr(value) {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#x27;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+}
+
+/**
  * Posts an article to Dev.to.
  * @param {string} apiKey The Dev.to API key.
  * @param {string} content The content to post.
@@ -98,11 +112,10 @@ async function postArticle(apiKey, content, postOptions) {
 	let processedContent = content;
 
 	for (const image of imagesWithUrl) {
-		const replaced = processedContent.replace(
+		processedContent = processedContent.replace(
 			/<img\b(?![^>]*\bsrc="https?:\/\/[^"]*")[^>]*>/i,
-			`<img src="${image.url}"${image.alt ? ` alt="${image.alt}"` : ""}>`,
+			`<img src="${escapeAttr(image.url)}"${image.alt ? ` alt="${escapeAttr(image.alt)}"` : ""}>`,
 		);
-		processedContent = replaced;
 	}
 
 	const mainImage = imagesWithUrl[0]?.url;
