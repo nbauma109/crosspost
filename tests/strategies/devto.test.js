@@ -201,15 +201,17 @@ describe("DevtoStrategy", () => {
 				},
 			);
 
-			const response = await strategy.post(content, {
-				images: [
-					{
-						alt: "Release image",
-						data: new Uint8Array([137, 80, 78, 71]),
-						url: imageUrl,
-					},
-				],
-			});
+			const response = await strategy.post(
+				content,
+				/** @type {any} */ ({
+					images: [
+						{
+							alt: "Release image",
+							url: imageUrl,
+						},
+					],
+				}),
+			);
 
 			assert.deepStrictEqual(response, CREATE_ARTICLE_RESPONSE);
 		});
