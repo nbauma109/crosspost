@@ -86,15 +86,11 @@ const USER_AGENT = "Crosspost v1.0.4"; // x-release-please-version
  * @returns {Promise<DevtoArticle>} A promise that resolves with the article data.
  */
 async function postArticle(apiKey, content, postOptions) {
-	const mainImage = postOptions?.images
-		?.map(image => {
-			if ("url" in image && typeof image.url === "string") {
-				return image.url;
-			}
-
-			return undefined;
-		})
-		.find(url => url);
+	const imageWithUrl = postOptions?.images?.find(
+		image => "url" in image && typeof image.url === "string",
+	);
+	const mainImage =
+		imageWithUrl && "url" in imageWithUrl ? imageWithUrl.url : undefined;
 
 	const response = await fetch(`${API_URL}/articles`, {
 		method: "POST",
