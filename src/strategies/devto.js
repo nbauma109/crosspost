@@ -93,6 +93,39 @@ function escapeAttr(value) {
 }
 
 /**
+ * Replaces the next inline image placeholder with a replacement tag.
+ * Placeholders are `<img>` tags with no src and `<img src="data:...">` tags.
+ * @param {string} content The markdown content.
+ * @param {string} replacement The replacement `<img ...>` tag.
+ * @returns {string} The updated markdown content.
+ */
+function replaceNextImagePlaceholder(content, replacement) {
+	const dataSrcImgRegex = /<img\b[^>]*\bsrc="data:[^"]*"[^>]*>/i;
+	const noSrcImgRegex = /<img\b(?![^>]*\bsrc=)[^>]*>/i;
+	const dataSrcMatch = content.match(dataSrcImgRegex);
+	const noSrcMatch = content.match(noSrcImgRegex);
+
+	if (!dataSrcMatch && !noSrcMatch) {
+		return content;
+	}
+
+	if (!dataSrcMatch) {
+		return content.replace(noSrcImgRegex, replacement);
+	}
+
+	if (!noSrcMatch) {
+		return content.replace(dataSrcImgRegex, replacement);
+	}
+
+	const dataSrcIndex = dataSrcMatch.index ?? Number.POSITIVE_INFINITY;
+	const noSrcIndex = noSrcMatch.index ?? Number.POSITIVE_INFINITY;
+
+	return dataSrcIndex <= noSrcIndex
+		? content.replace(dataSrcImgRegex, replacement)
+		: content.replace(noSrcImgRegex, replacement);
+}
+
+/**
  * Posts an article to Dev.to.
  * @param {string} apiKey The Dev.to API key.
  * @param {string} content The content to post.
@@ -117,10 +150,8 @@ async function postArticle(apiKey, content, postOptions) {
 			mainImage = url;
 		}
 
-		// The negative lookahead matches <img> tags whose src is absent or is a data: URI,
-		// but leaves alone any <img> that already has an http/https src.
-		processedContent = processedContent.replace(
-			/<img\b(?![^>]*\bsrc="https?:\/\/[^"]*")[^>]*>/i,
+		processedContent = replaceNextImagePlaceholder(
+			processedContent,
 			`<img src="${escapeAttr(url)}"${"alt" in image && typeof image.alt === "string" ? ` alt="${escapeAttr(image.alt)}"` : ""}>`,
 		);
 	}
