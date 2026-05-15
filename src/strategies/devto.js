@@ -112,18 +112,16 @@ async function postArticle(apiKey, content, postOptions) {
 		}
 
 		const url = image.url;
-		const alt =
-			"alt" in image && typeof image.alt === "string"
-				? image.alt
-				: undefined;
 
 		if (!mainImage) {
 			mainImage = url;
 		}
 
+		// The negative lookahead matches <img> tags whose src is absent or is a data: URI,
+		// but leaves alone any <img> that already has an http/https src.
 		processedContent = processedContent.replace(
 			/<img\b(?![^>]*\bsrc="https?:\/\/[^"]*")[^>]*>/i,
-			`<img src="${escapeAttr(url)}"${alt ? ` alt="${escapeAttr(alt)}"` : ""}>`,
+			`<img src="${escapeAttr(url)}"${"alt" in image && typeof image.alt === "string" ? ` alt="${escapeAttr(image.alt)}"` : ""}>`,
 		);
 	}
 
