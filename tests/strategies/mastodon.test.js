@@ -394,6 +394,130 @@ describe("MastodonStrategy", () => {
 			);
 		});
 
+		it("should poll GET /api/v1/media/:id when upload returns 202", async () => {
+			// Use fast polling so the test completes quickly
+			const options = {
+				accessToken: "token",
+				host: "mastodon.social",
+				pollIntervalMs: 10,
+				maxPollAttempts: 5,
+			};
+			const instance = new MastodonStrategy(options);
+			const message = "Hello, Mastodon!";
+			const imagePath = path.join(FIXTURES_DIR, "smiley.png");
+			const imageData = new Uint8Array(await fs.readFile(imagePath));
+			const statusResponse = { id: "12345" };
+
+			// Upload returns 202 – still processing
+			server.post(
+				{
+					url: "/api/v2/media",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				{
+					status: 202,
+					headers: { "content-type": "application/json" },
+					body: { id: "999", type: "image", url: null },
+				},
+			);
+
+			// First poll returns null url (still processing)
+			server.get(
+				{
+					url: "/api/v1/media/999",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				{
+					status: 200,
+					headers: { "content-type": "application/json" },
+					body: { id: "999", type: "image", url: null },
+				},
+			);
+
+			// Second poll returns a real url (ready)
+			server.get(
+				{
+					url: "/api/v1/media/999",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				{
+					status: 200,
+					headers: { "content-type": "application/json" },
+					body: {
+						id: "999",
+						type: "image",
+						url: "https://example.com/image.png",
+					},
+				},
+			);
+
+			server.post(
+				{
+					url: "/api/v1/statuses",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				{
+					status: 200,
+					headers: { "content-type": "application/json" },
+					body: statusResponse,
+				},
+			);
+
+			const result = await instance.post(message, {
+				images: [{ alt: "test image", data: imageData }],
+			});
+			assert.deepStrictEqual(result, statusResponse);
+		});
+
+		it("should throw an error when media processing times out", async () => {
+			// Use fast polling with a single attempt so the test completes quickly
+			const options = {
+				accessToken: "token",
+				host: "mastodon.social",
+				pollIntervalMs: 10,
+				maxPollAttempts: 1,
+			};
+			const instance = new MastodonStrategy(options);
+			const message = "Hello, Mastodon!";
+			const imagePath = path.join(FIXTURES_DIR, "smiley.png");
+			const imageData = new Uint8Array(await fs.readFile(imagePath));
+
+			// Upload returns 202
+			server.post(
+				{
+					url: "/api/v2/media",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				{
+					status: 202,
+					headers: { "content-type": "application/json" },
+					body: { id: "777", type: "image", url: null },
+				},
+			);
+
+			// The one poll attempt returns null url (never ready)
+			server.get(
+				{
+					url: "/api/v1/media/777",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				{
+					status: 200,
+					headers: { "content-type": "application/json" },
+					body: { id: "777", type: "image", url: null },
+				},
+			);
+
+			await assert.rejects(
+				async () => {
+					await instance.post(message, {
+						images: [{ alt: "test image", data: imageData }],
+					});
+				},
+				/Media processing timed out for ID 777/,
+			);
+		});
+
 		it("should abort when signal is triggered", async () => {
 			const options = { accessToken: "token", host: "mastodon.social" };
 			const instance = new MastodonStrategy(options);

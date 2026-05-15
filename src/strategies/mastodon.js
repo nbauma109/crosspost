@@ -3,7 +3,7 @@
  * @author Nicholas C. Zakas
  */
 
-/* global fetch, FormData, Blob */
+/* global fetch, FormData, Blob, setTimeout */
 
 //-----------------------------------------------------------------------------
 // Imports
@@ -23,6 +23,14 @@ import { getImageMimeType } from "../util/images.js";
  * @typedef {Object} MastodonOptions
  * @property {string} accessToken The access token for the Mastodon account.
  * @property {string} host The host for the Mastodon instance.
+ * @property {number} [pollIntervalMs] Milliseconds between media-processing polls (default: 1000).
+ * @property {number} [maxPollAttempts] Maximum number of media-processing polls before timing out (default: 30).
+ *
+ * @typedef {Object} MastodonResolvedOptions
+ * @property {string} accessToken The access token for the Mastodon account.
+ * @property {string} host The host for the Mastodon instance.
+ * @property {number} pollIntervalMs Milliseconds between media-processing polls.
+ * @property {number} maxPollAttempts Maximum number of media-processing polls before timing out.
  *
  * @typedef {Object} MastodonErrorResponse
  * @property {string} error The error message returned by the Mastodon API.
@@ -70,14 +78,73 @@ import { getImageMimeType } from "../util/images.js";
  */
 
 //-----------------------------------------------------------------------------
+// Constants
+//-----------------------------------------------------------------------------
+
+const POLL_INTERVAL_MS = 1000;
+const MAX_POLL_ATTEMPTS = 30;
+
+//-----------------------------------------------------------------------------
 // Helpers
 //-----------------------------------------------------------------------------
+
+/**
+ * Polls the media status endpoint until the media is ready (url is non-null).
+ * @param {Object} options The poll options.
+ * @param {string} options.accessToken The Mastodon access token.
+ * @param {string} options.host The Mastodon host.
+ * @param {number} options.pollIntervalMs Milliseconds between polls.
+ * @param {number} options.maxPollAttempts Maximum poll attempts before timing out.
+ * @param {string} mediaId The media ID to poll.
+ * @param {AbortSignal} [signal] The abort signal.
+ * @returns {Promise<void>} A promise that resolves when the media is ready.
+ * @throws {Error} If polling times out or the status check fails.
+ */
+async function waitForMediaProcessing(
+	{ accessToken, host, pollIntervalMs, maxPollAttempts },
+	mediaId,
+	signal,
+) {
+	const url = `https://${host}/api/v1/media/${mediaId}`;
+
+	for (let attempt = 0; attempt < maxPollAttempts; attempt++) {
+		await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+
+		const response = await fetch(url, {
+			headers: {
+				Authorization: `Bearer ${accessToken}`,
+			},
+			signal,
+		});
+
+		if (!response.ok) {
+			const { error } = /** @type {MastodonErrorResponse} */ (
+				await response.json()
+			);
+			throw new Error(
+				`${response.status} ${response.statusText}: Failed to check media status${error ? `: ${error}` : ""}`,
+			);
+		}
+
+		const result = /** @type {MastodonMediaResponse} */ (
+			await response.json()
+		);
+
+		if (result.url !== null) {
+			return;
+		}
+	}
+
+	throw new Error(`Media processing timed out for ID ${mediaId}`);
+}
 
 /**
  * Uploads media to Mastodon.
  * @param {Object} options The upload options.
  * @param {string} options.accessToken The Mastodon access token.
  * @param {string} options.host The Mastodon host.
+ * @param {number} options.pollIntervalMs Milliseconds between media-processing polls.
+ * @param {number} options.maxPollAttempts Maximum number of polls before timing out.
  * @param {Object} image The image to upload.
  * @param {Uint8Array} image.data The image data.
  * @param {string} [image.alt] Alt text for the image.
@@ -85,7 +152,11 @@ import { getImageMimeType } from "../util/images.js";
  * @returns {Promise<string>} A promise that resolves with the media ID.
  * @throws {Error} If the upload fails.
  */
-async function uploadMedia({ accessToken, host }, image, signal) {
+async function uploadMedia(
+	{ accessToken, host, pollIntervalMs, maxPollAttempts },
+	image,
+	signal,
+) {
 	const url = `https://${host}/api/v2/media`;
 	const type = getImageMimeType(image.data);
 
@@ -119,6 +190,15 @@ async function uploadMedia({ accessToken, host }, image, signal) {
 	}
 
 	const result = /** @type {MastodonMediaResponse} */ (await response.json());
+
+	if (response.status === 202) {
+		await waitForMediaProcessing(
+			{ accessToken, host, pollIntervalMs, maxPollAttempts },
+			result.id,
+			signal,
+		);
+	}
+
 	return result.id;
 }
 
@@ -146,7 +226,7 @@ export class MastodonStrategy {
 
 	/**
 	 * Options for this instance.
-	 * @type {MastodonOptions}
+	 * @type {MastodonResolvedOptions}
 	 */
 	#options;
 
@@ -186,7 +266,13 @@ export class MastodonStrategy {
 			throw new TypeError("Missing Mastodon host.");
 		}
 
-		this.#options = { ...options, accessToken, host };
+		this.#options = {
+			...options,
+			accessToken,
+			host,
+			pollIntervalMs: options.pollIntervalMs ?? POLL_INTERVAL_MS,
+			maxPollAttempts: options.maxPollAttempts ?? MAX_POLL_ATTEMPTS,
+		};
 	}
 
 	/**
