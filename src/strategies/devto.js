@@ -3,13 +3,7 @@
  * @author Nicholas C. Zakas
  */
 
-/* global fetch, Buffer */
-
-//-----------------------------------------------------------------------------
-// Imports
-//-----------------------------------------------------------------------------
-
-import { getImageMimeType } from "../util/images.js";
+/* global fetch */
 
 //-----------------------------------------------------------------------------
 // Type Definitions
@@ -78,10 +72,58 @@ import { getImageMimeType } from "../util/images.js";
 //-----------------------------------------------------------------------------
 
 const API_URL = "https://dev.to/api";
+const USER_AGENT = "Crosspost v1.0.4"; // x-release-please-version
+const DATA_SRC_IMG_REGEX = /<img\b[^>]*\bsrc="data:[^"]*"[^>]*>/i;
+const NO_SRC_IMG_REGEX = /<img\b(?![^>]*\bsrc=)[^>]*>/i;
 
 //-----------------------------------------------------------------------------
 // Helpers
 //-----------------------------------------------------------------------------
+
+/**
+ * Escapes special HTML attribute characters to prevent injection.
+ * @param {string} value The raw attribute value.
+ * @returns {string} The escaped attribute value.
+ */
+function escapeAttr(value) {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#x27;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+}
+
+/**
+ * Replaces the next inline image placeholder with a replacement tag.
+ * Placeholders are `<img>` tags with no src and `<img src="data:...">` tags.
+ * @param {string} content The markdown content.
+ * @param {string} replacement The replacement `<img ...>` tag.
+ * @returns {string} The updated markdown content.
+ */
+function replaceNextImagePlaceholder(content, replacement) {
+	const dataSrcMatch = content.match(DATA_SRC_IMG_REGEX);
+	const noSrcMatch = content.match(NO_SRC_IMG_REGEX);
+
+	if (!dataSrcMatch && !noSrcMatch) {
+		return content;
+	}
+
+	if (!dataSrcMatch) {
+		return content.replace(NO_SRC_IMG_REGEX, replacement);
+	}
+
+	if (!noSrcMatch) {
+		return content.replace(DATA_SRC_IMG_REGEX, replacement);
+	}
+
+	const dataSrcIndex = dataSrcMatch.index ?? Number.POSITIVE_INFINITY;
+	const noSrcIndex = noSrcMatch.index ?? Number.POSITIVE_INFINITY;
+
+	return dataSrcIndex <= noSrcIndex
+		? content.replace(DATA_SRC_IMG_REGEX, replacement)
+		: content.replace(NO_SRC_IMG_REGEX, replacement);
+}
 
 /**
  * Posts an article to Dev.to.
@@ -91,16 +133,27 @@ const API_URL = "https://dev.to/api";
  * @returns {Promise<DevtoArticle>} A promise that resolves with the article data.
  */
 async function postArticle(apiKey, content, postOptions) {
-	let articleContent = content;
+	// Replace <img> placeholder tags (no src or data: URI src) with URL-based img tags,
+	// using images that carry a url property. Each image replaces the next placeholder
+	// in document order (no global flag so each loop iteration advances one placeholder).
+	let processedContent = content;
+	let mainImage;
 
-	// if there are images, append them to the content
-	if (postOptions?.images?.length) {
-		articleContent += "\n\n";
-		for (const image of postOptions.images) {
-			const base64 = Buffer.from(image.data).toString("base64");
-			const mimeType = getImageMimeType(image.data);
-			articleContent += `![${image.alt || ""}](data:${mimeType};base64,${base64})\n\n`;
+	for (const image of postOptions?.images ?? []) {
+		if (!("url" in image) || typeof image.url !== "string") {
+			continue;
 		}
+
+		const url = image.url;
+
+		if (!mainImage) {
+			mainImage = url;
+		}
+
+		processedContent = replaceNextImagePlaceholder(
+			processedContent,
+			`<img src="${escapeAttr(url)}"${"alt" in image && typeof image.alt === "string" ? ` alt="${escapeAttr(image.alt)}"` : ""}>`,
+		);
 	}
 
 	const response = await fetch(`${API_URL}/articles`, {
@@ -108,13 +161,14 @@ async function postArticle(apiKey, content, postOptions) {
 		headers: {
 			"Content-Type": "application/json",
 			"api-key": apiKey,
-			"User-Agent": "Crosspost v0.7.0", // x-release-please-version
+			"User-Agent": USER_AGENT,
 		},
 		body: JSON.stringify({
 			article: {
-				title: content.split(/\r?\n/g)[0],
-				body_markdown: articleContent,
+				title: processedContent.split(/\r?\n/g)[0],
+				body_markdown: processedContent,
 				published: true,
+				...(mainImage ? { main_image: mainImage } : {}),
 			},
 		}),
 		signal: postOptions?.signal,

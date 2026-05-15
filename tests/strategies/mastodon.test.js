@@ -73,6 +73,32 @@ describe("MastodonStrategy", () => {
 			server.clear();
 		});
 
+		it("should trim whitespace and slashes from host and accessToken before use", async () => {
+			const instance = new MastodonStrategy({
+				accessToken: "  token\n",
+				host: "mastodon.social/",
+			});
+			const message = "Hello, Mastodon!";
+
+			server.post(
+				{
+					url: "/api/v1/statuses",
+					request: {
+						headers: { authorization: "Bearer token" },
+						body: { status: message },
+					},
+				},
+				{
+					status: 200,
+					headers: { "content-type": "application/json" },
+					body: { id: "12345" },
+				},
+			);
+
+			const result = await instance.post(message);
+			assert.strictEqual(result.id, "12345");
+		});
+
 		it("should throw an error if message is missing", async () => {
 			const options = { accessToken: "token", host: "mastodon.social" };
 			const instance = new MastodonStrategy(options);
@@ -215,7 +241,7 @@ describe("MastodonStrategy", () => {
 			// Mock the media upload endpoint
 			server.post(
 				{
-					url: "/api/v1/media",
+					url: "/api/v2/media",
 					request: {
 						headers: {
 							authorization: "Bearer token",
@@ -261,6 +287,67 @@ describe("MastodonStrategy", () => {
 			assert.deepStrictEqual(result, statusResponse);
 		});
 
+		it("should upload multiple images and attach all media IDs to the status", async () => {
+			const options = { accessToken: "token", host: "mastodon.social" };
+			const instance = new MastodonStrategy(options);
+			const message = "Hello, Mastodon!";
+			const imagePath = path.join(FIXTURES_DIR, "smiley.png");
+			const imageData = new Uint8Array(await fs.readFile(imagePath));
+			const statusResponse = { id: "12345" };
+
+			// First image upload
+			server.post(
+				{
+					url: "/api/v2/media",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				{
+					status: 200,
+					headers: { "content-type": "application/json" },
+					body: { id: "111", type: "image", url: null },
+				},
+			);
+
+			// Second image upload
+			server.post(
+				{
+					url: "/api/v2/media",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				{
+					status: 200,
+					headers: { "content-type": "application/json" },
+					body: { id: "222", type: "image", url: null },
+				},
+			);
+
+			let capturedMediaIds;
+			server.post(
+				{
+					url: "/api/v1/statuses",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				async req => {
+					const formData = await req.formData();
+					capturedMediaIds = formData.getAll("media_ids[]");
+					return new Response(JSON.stringify(statusResponse), {
+						status: 200,
+						headers: { "content-type": "application/json" },
+					});
+				},
+			);
+
+			const result = await instance.post(message, {
+				images: [
+					{ alt: "first", data: imageData },
+					{ alt: "second", data: imageData },
+				],
+			});
+
+			assert.deepStrictEqual(result, statusResponse);
+			assert.deepStrictEqual(capturedMediaIds, ["111", "222"]);
+		});
+
 		it("should handle media upload errors", async () => {
 			const options = { accessToken: "token", host: "mastodon.social" };
 			const instance = new MastodonStrategy(options);
@@ -271,7 +358,7 @@ describe("MastodonStrategy", () => {
 			// Mock failed media upload
 			server.post(
 				{
-					url: "/api/v1/media",
+					url: "/api/v2/media",
 					request: {
 						headers: {
 							authorization: "Bearer token",
@@ -304,6 +391,130 @@ describe("MastodonStrategy", () => {
 					message:
 						"413 Payload Too Large: Failed to upload media: 413 Payload Too Large: File is too large",
 				},
+			);
+		});
+
+		it("should poll GET /api/v1/media/:id when upload returns 202", async () => {
+			// Use fast polling so the test completes quickly
+			const options = {
+				accessToken: "token",
+				host: "mastodon.social",
+				pollIntervalMs: 10,
+				maxPollAttempts: 5,
+			};
+			const instance = new MastodonStrategy(options);
+			const message = "Hello, Mastodon!";
+			const imagePath = path.join(FIXTURES_DIR, "smiley.png");
+			const imageData = new Uint8Array(await fs.readFile(imagePath));
+			const statusResponse = { id: "12345" };
+
+			// Upload returns 202 – still processing
+			server.post(
+				{
+					url: "/api/v2/media",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				{
+					status: 202,
+					headers: { "content-type": "application/json" },
+					body: { id: "999", type: "image", url: null },
+				},
+			);
+
+			// First poll returns null url (still processing)
+			server.get(
+				{
+					url: "/api/v1/media/999",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				{
+					status: 200,
+					headers: { "content-type": "application/json" },
+					body: { id: "999", type: "image", url: null },
+				},
+			);
+
+			// Second poll returns a real url (ready)
+			server.get(
+				{
+					url: "/api/v1/media/999",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				{
+					status: 200,
+					headers: { "content-type": "application/json" },
+					body: {
+						id: "999",
+						type: "image",
+						url: "https://example.com/image.png",
+					},
+				},
+			);
+
+			server.post(
+				{
+					url: "/api/v1/statuses",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				{
+					status: 200,
+					headers: { "content-type": "application/json" },
+					body: statusResponse,
+				},
+			);
+
+			const result = await instance.post(message, {
+				images: [{ alt: "test image", data: imageData }],
+			});
+			assert.deepStrictEqual(result, statusResponse);
+		});
+
+		it("should throw an error when media processing times out", async () => {
+			// Use fast polling with a single attempt so the test completes quickly
+			const options = {
+				accessToken: "token",
+				host: "mastodon.social",
+				pollIntervalMs: 10,
+				maxPollAttempts: 1,
+			};
+			const instance = new MastodonStrategy(options);
+			const message = "Hello, Mastodon!";
+			const imagePath = path.join(FIXTURES_DIR, "smiley.png");
+			const imageData = new Uint8Array(await fs.readFile(imagePath));
+
+			// Upload returns 202
+			server.post(
+				{
+					url: "/api/v2/media",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				{
+					status: 202,
+					headers: { "content-type": "application/json" },
+					body: { id: "777", type: "image", url: null },
+				},
+			);
+
+			// The one poll attempt returns null url (never ready)
+			server.get(
+				{
+					url: "/api/v1/media/777",
+					request: { headers: { authorization: "Bearer token" } },
+				},
+				{
+					status: 200,
+					headers: { "content-type": "application/json" },
+					body: { id: "777", type: "image", url: null },
+				},
+			);
+
+			await assert.rejects(
+				async () => {
+					await instance.post(message, {
+						images: [{ alt: "test image", data: imageData }],
+					});
+				},
+				/Media processing timed out for ID 777/,
 			);
 		});
 
