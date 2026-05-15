@@ -73,6 +73,8 @@
 
 const API_URL = "https://dev.to/api";
 const USER_AGENT = "Crosspost v1.0.4"; // x-release-please-version
+const DATA_SRC_IMG_REGEX = /<img\b[^>]*\bsrc="data:[^"]*"[^>]*>/i;
+const NO_SRC_IMG_REGEX = /<img\b(?![^>]*\bsrc=)[^>]*>/i;
 
 //-----------------------------------------------------------------------------
 // Helpers
@@ -100,29 +102,27 @@ function escapeAttr(value) {
  * @returns {string} The updated markdown content.
  */
 function replaceNextImagePlaceholder(content, replacement) {
-	const dataSrcImgRegex = /<img\b[^>]*\bsrc="data:[^"]*"[^>]*>/i;
-	const noSrcImgRegex = /<img\b(?![^>]*\bsrc=)[^>]*>/i;
-	const dataSrcMatch = content.match(dataSrcImgRegex);
-	const noSrcMatch = content.match(noSrcImgRegex);
+	const dataSrcMatch = content.match(DATA_SRC_IMG_REGEX);
+	const noSrcMatch = content.match(NO_SRC_IMG_REGEX);
 
 	if (!dataSrcMatch && !noSrcMatch) {
 		return content;
 	}
 
 	if (!dataSrcMatch) {
-		return content.replace(noSrcImgRegex, replacement);
+		return content.replace(NO_SRC_IMG_REGEX, replacement);
 	}
 
 	if (!noSrcMatch) {
-		return content.replace(dataSrcImgRegex, replacement);
+		return content.replace(DATA_SRC_IMG_REGEX, replacement);
 	}
 
 	const dataSrcIndex = dataSrcMatch.index ?? Number.POSITIVE_INFINITY;
 	const noSrcIndex = noSrcMatch.index ?? Number.POSITIVE_INFINITY;
 
 	return dataSrcIndex <= noSrcIndex
-		? content.replace(dataSrcImgRegex, replacement)
-		: content.replace(noSrcImgRegex, replacement);
+		? content.replace(DATA_SRC_IMG_REGEX, replacement)
+		: content.replace(NO_SRC_IMG_REGEX, replacement);
 }
 
 /**
