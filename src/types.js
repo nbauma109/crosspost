@@ -10,8 +10,7 @@
 /**
  * @typedef {Object} ImageEmbed
  * @property {string} [alt] The alt text for the image.
- * @property {Uint8Array} [data] The image data.
- * @property {string} [url] A URL pointing to the image.
+ * @property {Uint8Array} data The image data.
  */
 
 /**

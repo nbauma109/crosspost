@@ -86,20 +86,6 @@ const USER_AGENT = "Crosspost v1.0.4"; // x-release-please-version
  * @returns {Promise<DevtoArticle>} A promise that resolves with the article data.
  */
 async function postArticle(apiKey, content, postOptions) {
-	// Dev.to's main_image field accepts a single URL; only the first image's URL is used.
-	const imageUrl = postOptions?.images?.[0]?.url;
-
-	/** @type {Record<string, unknown>} */
-	const article = {
-		title: content.split(/\r?\n/g)[0],
-		body_markdown: content,
-		published: true,
-	};
-
-	if (imageUrl) {
-		article.main_image = imageUrl;
-	}
-
 	const response = await fetch(`${API_URL}/articles`, {
 		method: "POST",
 		headers: {
@@ -107,7 +93,13 @@ async function postArticle(apiKey, content, postOptions) {
 			"api-key": apiKey,
 			"User-Agent": USER_AGENT,
 		},
-		body: JSON.stringify({ article }),
+		body: JSON.stringify({
+			article: {
+				title: content.split(/\r?\n/g)[0],
+				body_markdown: content,
+				published: true,
+			},
+		}),
 		signal: postOptions?.signal,
 	});
 
