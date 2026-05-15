@@ -172,7 +172,7 @@ describe("DevtoStrategy", () => {
 			assert.deepStrictEqual(response, CREATE_ARTICLE_RESPONSE);
 		});
 
-		it("should post article without changes when image includes an extra url property", async () => {
+		it("should set main_image when image includes a url property", async () => {
 			const content = "Hello World\n\nThis is a test post.";
 			const imageUrl =
 				"https://opengraph.githubassets.com/abc/owner/repo/releases/tag/v1.0.0";
@@ -189,6 +189,7 @@ describe("DevtoStrategy", () => {
 							title: "Hello World",
 							body_markdown: content,
 							published: true,
+							main_image: imageUrl,
 						},
 					},
 				},
