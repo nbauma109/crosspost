@@ -132,7 +132,9 @@ async function waitForMediaProcessing(
 			return;
 		}
 
-		await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+		if (attempt < maxPollAttempts - 1) {
+			await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+		}
 	}
 
 	throw new Error(`Media processing timed out for ID ${mediaId}`);
